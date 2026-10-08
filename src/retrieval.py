@@ -9,7 +9,7 @@ K = 15
 
 
 def _tokenize(text: str) -> list[str]:
-    return [t.text for t in tokenize(text)]
+    return [t.text.lower().replace("ё", "е") for t in tokenize(text)]
 
 
 class BM25Retriever:

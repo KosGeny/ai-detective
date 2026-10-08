@@ -1,8 +1,8 @@
 import random
 from pathlib import Path
 
-from .context_builder import BuiltContext, build_context
-from .schemas import Claim, Document, StressCase, StressResult
+from .context_builder import build_context
+from .schemas import BuiltContext, Claim, Document, StressCase, StressResult
 
 
 def load_stress_cases(path: str | Path) -> list[StressCase]:
@@ -59,7 +59,6 @@ def _delete_evidence_from_documents(
             )
 
         new_text = d.text.replace(target.evidence, "", 1)
-        new_text = " ".join(new_text.split())
 
         result.append(d.model_copy(update={"text": new_text}))
     return result
@@ -101,17 +100,22 @@ def apply_case(
     else:
         raise ValueError(f"Неизвестный kind: {case.kind}")
 
+    if case.kind == "contradiction":
+        if case.added_document is None:
+            raise ValueError("contradiction-кейс без added_document")
+        if case.added_claim.document_id != case.added_document.document_id:
+            raise ValueError("Утверждение ссылается на другой добавленный документ")
+        if case.added_claim.evidence not in case.added_document.text:
+            raise ValueError("Добавленное evidence отсутствует в документе")
+        docs.append(case.added_document)
+
     out: list[tuple[str, BuiltContext, StressResult]] = []
     for mode in modes:
-        mode_docs = docs
-        if mode == "A" and case.added_document is not None:
-            mode_docs = docs + [case.added_document]
-
         ctx = build_context(
             mode=mode,
             question_id=case.question_id,
             question=question,
-            documents=mode_docs,
+            documents=docs,
             claims=cls,
             k=k,
         )
@@ -122,8 +126,10 @@ def apply_case(
             expected_status=case.expected_status,
             gold_evidence_ids=list(case.gold_evidence_ids),
             gold_counterevidence_ids=list(case.gold_counterevidence_ids),
-            context_b=ctx,
-            context_c=ctx,
+            original_document_ids=[d.document_id for d in documents],
+            changed_document_ids=[d.document_id for d in docs],
+            original_claim_ids=[c.claim_id for c in claims],
+            changed_claim_ids=[c.claim_id for c in cls],
             removed_claim_id=removed_id,
             added_claim_id=added_id,
             review_note=case.review_note,

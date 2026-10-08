@@ -9,7 +9,9 @@ from .schemas import BuiltContext, Claim, Document, Mode
 def build_mode_a(
     question_id: str,
     documents: Iterable[Document],
+    claims: Iterable[Claim] = (),
 ) -> BuiltContext:
+    claims = list(claims)
     parts: list[str] = []
     for d in documents:
         parts.append(
@@ -17,12 +19,15 @@ def build_mode_a(
             f"created_at={d.created_at.isoformat()} | author={d.author} ===\n"
             f"{d.text}"
         )
+    parts.append("=== РЕЕСТР УТВЕРЖДЕНИЙ И ИХ ID ===\n" + "\n".join(
+        _format_claim_line(claim) for claim in claims
+    ))
     text = "\n\n".join(parts)
     return BuiltContext(
         mode="A",
         question_id=question_id,
         text=text,
-        claim_ids=[],
+        claim_ids=[claim.claim_id for claim in claims],
         branches={},
     )
 
@@ -112,9 +117,13 @@ def build_context(
     claims = list(claims)
 
     if mode == "A":
-        return build_mode_a(question_id, documents)
-    if mode == "B":
-        return build_mode_b(question_id, question, claims, k)
-    if mode == "C":
-        return build_mode_c(question_id, question, claims, k)
-    raise ValueError(f"Неизвестный режим: {mode}")
+        context = build_mode_a(question_id, documents, claims)
+    elif mode == "B":
+        context = build_mode_b(question_id, question, claims, k)
+    elif mode == "C":
+        context = build_mode_c(question_id, question, claims, k)
+    else:
+        raise ValueError(f"Неизвестный режим: {mode}")
+    context.source_document_ids = [document.document_id for document in documents]
+    context.source_claim_ids = [claim.claim_id for claim in claims]
+    return context

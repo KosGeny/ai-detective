@@ -51,3 +51,8 @@ def test_ultrametric_helper_returns_true_on_known_triple():
     y = PadicPath(a0=0, a1=0, a2=1)
     z = PadicPath(a0=0, a1=0, a2=2)
     assert is_ultrametric(x, y, z) is True
+
+
+def test_invalid_path_is_rejected_by_distance():
+    with pytest.raises(ValueError):
+        distance((0, 0, 3), (0, 0, 0))
