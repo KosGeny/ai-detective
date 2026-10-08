@@ -1,4 +1,4 @@
-"""Groq Chat Completions adapter and strict answer validation."""
+"""DeepSeek Chat Completions adapter and strict answer validation."""
 
 import json
 import os
@@ -6,30 +6,14 @@ import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from pydantic import ValidationError
 
 from .schemas import BuiltContext, ModelAnswer
 
 DEFAULT_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "system.txt"
-DEFAULT_MODEL = "qwen/qwen3.8-27b"
-
-ANSWER_SCHEMA: dict[str, Any] = {
-    "type": "object",
-    "properties": {
-        "question_id": {"type": "string"},
-        "status": {"type": "string", "enum": ["entailed", "contradicted", "both", "insufficient"]},
-        "answer": {"type": ["string", "null"]},
-        "evidence_ids": {"type": "array", "items": {"type": "string"}},
-        "counterevidence_ids": {"type": "array", "items": {"type": "string"}},
-        "confidence": {"type": "number"},
-        "explanation": {"type": "string"},
-    },
-    "required": ["question_id", "status", "answer", "evidence_ids", "counterevidence_ids", "confidence", "explanation"],
-    "additionalProperties": False,
-}
-
+DEFAULT_MODEL = "deepseek-flash"
 
 class LLMUnavailable(RuntimeError):
     pass
@@ -81,7 +65,7 @@ def parse_model_answer(raw: str | dict[str, Any], question_id: str, available_id
     return answer
 
 
-class GroqLLM:
+class DeepSeekLLM:
     def __init__(self, model: str = DEFAULT_MODEL, api_key: str | None = None, prompt_path: str | Path = DEFAULT_PROMPT, client: Any = None):
         self.model = model
         self.system_prompt = Path(prompt_path).read_text(encoding="utf-8")
@@ -91,12 +75,12 @@ class GroqLLM:
     def _get_client(self) -> Any:
         if self._client is not None:
             return self._client
-        key = self._api_key or os.environ.get("GROQ_API_KEY")
+        key = self._api_key or os.environ.get("DEEPSEEK_API_KEY")
         if not key:
-            raise LLMUnavailable("Задайте GROQ_API_KEY в окружении или используйте --ask-key")
+            raise LLMUnavailable("Задайте DEEPSEEK_API_KEY в окружении или используйте --ask-key")
         try:
-            from groq import Groq
-            self._client = Groq(api_key=key, timeout=120.0, max_retries=2)
+            from openai import OpenAI
+            self._client = OpenAI(api_key=key, base_url="https://api.deepseek.com", timeout=120.0, max_retries=2)
         except ImportError as exc:
             raise LLMUnavailable("Установите зависимости из requirements.txt") from exc
         return self._client
@@ -112,12 +96,10 @@ class GroqLLM:
                         {"role": "system", "content": self.system_prompt},
                         {"role": "user", "content": input_text},
                     ],
-                    response_format={"type": "json_schema", "json_schema": {"name": "detective_answer", "strict": True, "schema": ANSWER_SCHEMA}},
+                    response_format={"type": "json_object"},
                     temperature=1.0,
-                    top_p=0.95,
-                    reasoning_effort="low",
-                    reasoning_format="hidden",
-                    max_completion_tokens=1200,
+                    extra_body={"thinking": {"type": "disabled"}},
+                    max_tokens=1200,
                 )
                 break
             except LLMUnavailable:
@@ -132,7 +114,7 @@ class GroqLLM:
                     time.sleep(min(max(delay, 1), 60))
                     continue
                 detail = str(exc)
-                key = self._api_key or os.environ.get("GROQ_API_KEY")
+                key = self._api_key or os.environ.get("DEEPSEEK_API_KEY")
                 if key:
                     detail = detail.replace(key, "[REDACTED]")
                 raise LLMUnavailable(f"LLM недоступна: {type(exc).__name__}: {detail}") from None

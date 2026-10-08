@@ -1,4 +1,4 @@
-# Частичные результаты лабораторной 6: B/C
+# Архив прежнего частичного прогона Groq: B/C
 
 `run_id`: `0a321e1fbb4743e7819099c5c603dff2`. Модель: `qwen/qwen3.8-27b` через Groq.
 
@@ -27,4 +27,4 @@
 | contradiction | 15 | 1 | 0.667 | 0.800 |
 | delete | 5 | 0.800 | 0.800 | 0 |
 
-Для завершения после повышения лимита Groq: `.venv/bin/python run_experiment.py --ask-key --modes A --run-id 0a321e1fbb4743e7819099c5c603dff2`, затем `.venv/bin/python generate_report.py --run-id 0a321e1fbb4743e7819099c5c603dff2 --output report.pdf`.
+Этот прогон не входит в итоговые метрики DeepSeek. Текущие команды проекта используют модель `deepseek-flash`.

@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.llm import GroqLLM, InvalidModelAnswer, LLMUnavailable, parse_model_answer
+from src.llm import DeepSeekLLM, InvalidModelAnswer, LLMUnavailable, parse_model_answer
 from src.schemas import BuiltContext
 
 
@@ -42,9 +42,9 @@ def test_reference_to_unavailable_claim_in_explanation():
 
 
 def test_missing_key(monkeypatch):
-    monkeypatch.delenv("GROQ_API_KEY", raising=False)
-    llm = GroqLLM()
-    with pytest.raises(LLMUnavailable, match="GROQ_API_KEY"):
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    llm = DeepSeekLLM()
+    with pytest.raises(LLMUnavailable, match="DEEPSEEK_API_KEY"):
         llm.ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
 
 
@@ -52,7 +52,7 @@ def test_adapter_parses_response_from_fake_client():
     response = SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content=__import__("json").dumps(payload())))],
                                usage=SimpleNamespace(prompt_tokens=15, completion_tokens=20), id="chatcmpl-1")
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
-    result = GroqLLM(client=client).ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
+    result = DeepSeekLLM(client=client).ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
     assert result.answer.evidence_ids == ["C01"]
     assert (result.input_tokens, result.output_tokens) == (15, 20)
 
@@ -62,12 +62,12 @@ def test_api_failure_is_reported():
         raise ConnectionError("offline")
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=fail)))
     with pytest.raises(LLMUnavailable, match="offline"):
-        GroqLLM(client=client).ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
+        DeepSeekLLM(client=client).ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
 
 
 def test_invalid_raw_output_is_available_for_review():
     response = SimpleNamespace(choices=[SimpleNamespace(finish_reason="stop", message=SimpleNamespace(content="not json"))], usage=None, id="chatcmpl-1")
     client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=lambda **kwargs: response)))
     with pytest.raises(InvalidModelAnswer) as error:
-        GroqLLM(client=client).ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
+        DeepSeekLLM(client=client).ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
     assert error.value.raw_output == "not json"

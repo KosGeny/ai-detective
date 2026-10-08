@@ -1,6 +1,7 @@
 """Reproducible baseline and stress runs with append-only JSONL results."""
 
 import json
+import gzip
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -8,7 +9,7 @@ from typing import Any, Callable, Iterable
 
 from .context_builder import build_context
 from .data_io import load_dossier
-from .llm import GroqLLM, InvalidModelAnswer, LLMUnavailable
+from .llm import DeepSeekLLM, InvalidModelAnswer, LLMUnavailable
 from .schemas import BuiltContext, Claim, Document, Question, StressCase
 from .stress import apply_case
 
@@ -17,7 +18,8 @@ def load_results(path: str | Path) -> list[dict[str, Any]]:
     path = Path(path)
     if not path.exists():
         return []
-    with path.open(encoding="utf-8") as stream:
+    opener = gzip.open if path.suffix == ".gz" else open
+    with opener(path, "rt", encoding="utf-8") as stream:
         return [json.loads(line) for line in stream if line.strip()]
 
 
@@ -32,7 +34,7 @@ def make_contexts(question: Question, documents: list[Document], claims: list[Cl
     return contexts
 
 
-def run_one(llm: GroqLLM, question: Question, mode: str, context: BuiltContext, case: StressCase | None = None, run_id: str = "manual", original_document_ids: list[str] | None = None, original_claim_ids: list[str] | None = None) -> dict[str, Any]:
+def run_one(llm: DeepSeekLLM, question: Question, mode: str, context: BuiltContext, case: StressCase | None = None, run_id: str = "manual", original_document_ids: list[str] | None = None, original_claim_ids: list[str] | None = None) -> dict[str, Any]:
     now = datetime.now(timezone.utc).isoformat()
     result: dict[str, Any] = {
         "run_id": run_id, "created_at": now, "model": llm.model,
@@ -47,7 +49,7 @@ def run_one(llm: GroqLLM, question: Question, mode: str, context: BuiltContext, 
         "source_document_ids": context.source_document_ids,
         "source_claim_ids": context.source_claim_ids,
         "context_text": context.text, "branches": {str(key): value for key, value in context.branches.items()},
-        "parameters": {"model": llm.model, "max_completion_tokens": 1200, "temperature": 1.0, "top_p": 0.95, "reasoning_effort": "low", "reasoning_format": "hidden", "system_prompt": llm.system_prompt},
+        "parameters": {"model": llm.model, "max_tokens": 1200, "temperature": 1.0, "thinking": "disabled", "response_format": "json_object", "system_prompt": llm.system_prompt},
         "answer": None, "raw_output": None, "error": None, "error_type": None, "input_tokens": None, "output_tokens": None,
         "elapsed_seconds": None, "response_id": None,
     }
@@ -64,10 +66,10 @@ def run_one(llm: GroqLLM, question: Question, mode: str, context: BuiltContext, 
     return result
 
 
-def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/runs.jsonl", include_stress: bool = True, llm: GroqLLM | None = None, progress: Callable[[int, int], None] | None = None, modes: tuple[str, ...] = ("A", "B", "C"), run_id: str | None = None) -> list[dict[str, Any]]:
+def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/runs.jsonl", include_stress: bool = True, llm: DeepSeekLLM | None = None, progress: Callable[[int, int], None] | None = None, modes: tuple[str, ...] = ("A", "B", "C"), run_id: str | None = None) -> list[dict[str, Any]]:
     documents, claims, questions, cases = load_dossier(data_dir)
-    llm = llm or GroqLLM()
-    if isinstance(llm, GroqLLM):
+    llm = llm or DeepSeekLLM()
+    if isinstance(llm, DeepSeekLLM):
         llm._get_client()  # Fail before creating result files when credentials are absent.
     tasks: list[tuple[Question, StressCase | None, str, BuiltContext]] = []
     for question in questions:
@@ -82,6 +84,8 @@ def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/
                             tasks.append((question, case, mode, context))
     run_id = run_id or uuid.uuid4().hex
     output = Path(output)
+    if output.suffix == ".gz":
+        raise ValueError("Для записи прогона укажите обычный JSONL; .gz поддерживается только для чтения архива")
     output.parent.mkdir(parents=True, exist_ok=True)
     existing = [row for row in load_results(output) if row["run_id"] == run_id]
     if existing and any(row["model"] != llm.model or row["parameters"]["system_prompt"] != llm.system_prompt for row in existing):

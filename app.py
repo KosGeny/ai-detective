@@ -12,7 +12,7 @@ import streamlit as st
 from src.data_io import load_dossier
 from src.evaluation import compare_modes, compare_stress, summarize
 from src.experiment import load_results, load_run, make_contexts, run_experiment, run_one
-from src.llm import GroqLLM
+from src.llm import DeepSeekLLM
 
 RESULTS = Path("results/runs.jsonl")
 REQUIRED_UPLOADS = {"documents.jsonl", "claims.jsonl", "questions.jsonl", "stress_cases.jsonl"}
@@ -23,8 +23,8 @@ st.caption("Одна модель, один промпт; A — все доку�
 
 st.sidebar.header("Досье и модель")
 uploaded = st.sidebar.file_uploader("Загрузить четыре JSONL файла", type="jsonl", accept_multiple_files=True)
-model = st.sidebar.text_input("Модель", value="qwen/qwen3.8-27b")
-api_key = st.sidebar.text_input("Groq API key", type="password", help="Ключ хранится только в текущей сессии Streamlit")
+model = st.sidebar.text_input("Модель", value="deepseek-flash")
+api_key = st.sidebar.text_input("DeepSeek API key", type="password", help="Ключ хранится только в текущей сессии Streamlit")
 data_dir = Path("data")
 if uploaded:
     names = {item.name for item in uploaded}
@@ -71,7 +71,7 @@ with left:
 with right:
     st.subheader("Ответ")
     if st.button("Запросить ответ модели", type="primary"):
-        llm = GroqLLM(model=model, api_key=api_key or None)
+        llm = DeepSeekLLM(model=model, api_key=api_key or None)
         row = run_one(llm, question, mode, context, case_choice, run_id=uuid.uuid4().hex,
                       original_document_ids=[document.document_id for document in documents],
                       original_claim_ids=[claim.claim_id for claim in claims])
@@ -115,7 +115,7 @@ if st.button("Запустить полный прогон"):
     try:
         with st.spinner("Выполняется прогон"):
             rows = run_experiment(data_dir=data_dir, output=RESULTS, include_stress=include_stress,
-                                  llm=GroqLLM(model=model, api_key=api_key or None), modes=tuple(selected_modes),
+                                  llm=DeepSeekLLM(model=model, api_key=api_key or None), modes=tuple(selected_modes),
                                   progress=lambda n, total: bar.progress(n / total))
         if any(row["error"] for row in rows):
             st.error(f"Прогон остановлен после {len(rows)} записей; run_id={rows[0]['run_id']}. {rows[-1]['error']}")

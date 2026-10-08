@@ -4,20 +4,20 @@ import json
 
 from src.evaluation import compare_modes, compare_stress, summarize
 from src.experiment import load_run, run_experiment
-from src.llm import GroqLLM
+from src.llm import DeepSeekLLM
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Прогон лабораторной работы №6")
-    parser.add_argument("--model", default="qwen/qwen3.8-27b")
+    parser.add_argument("--model", default="deepseek-flash")
     parser.add_argument("--ask-key", action="store_true", help="Скрытый ввод ключа без записи в окружение")
     parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--modes", nargs="+", choices=("A", "B", "C"), default=["A", "B", "C"])
     parser.add_argument("--run-id", help="Продолжить существующий прогон теми же настройками")
     parser.add_argument("--output", default="results/runs.jsonl")
     args = parser.parse_args()
-    key = getpass.getpass("Groq API key: ") if args.ask_key else None
-    rows = run_experiment(output=args.output, include_stress=not args.baseline_only, llm=GroqLLM(model=args.model, api_key=key),
+    key = getpass.getpass("DeepSeek API key: ") if args.ask_key else None
+    rows = run_experiment(output=args.output, include_stress=not args.baseline_only, llm=DeepSeekLLM(model=args.model, api_key=key),
                           modes=tuple(args.modes), run_id=args.run_id,
                           progress=lambda n, total: print(f"{n}/{total}", end="\r", flush=True))
     print()
