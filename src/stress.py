@@ -37,6 +37,33 @@ def _delete_claim(claims: list[Claim], remove_claim_id: str) -> list[Claim]:
         )
     return result
 
+def _delete_evidence_from_documents(
+    documents: list[Document],
+    claims: list[Claim],
+    remove_claim_id: str,
+) -> list[Document]:
+    target = next((c for c in claims if c.claim_id == remove_claim_id), None)
+    if target is None:
+        raise ValueError(f"delete: claim_id={remove_claim_id} не найден")
+
+    result: list[Document] = []
+    for d in documents:
+        if d.document_id != target.document_id:
+            result.append(d)
+            continue
+
+        if target.evidence not in d.text:
+            raise ValueError(
+                f"delete: evidence claim'а {remove_claim_id} не найдено "
+                f"в документе {d.document_id}"
+            )
+
+        new_text = d.text.replace(target.evidence, "", 1)
+        new_text = " ".join(new_text.split())
+
+        result.append(d.model_copy(update={"text": new_text}))
+    return result
+
 
 def _add_contradiction(claims: list[Claim], added: Claim) -> list[Claim]:
     if any(c.claim_id == added.claim_id for c in claims):
@@ -62,6 +89,7 @@ def apply_case(
 
     elif case.kind == "delete":
         cls = _delete_claim(cls, case.remove_claim_id)
+        docs = _delete_evidence_from_documents(docs, claims, case.remove_claim_id)
         removed_id = case.remove_claim_id
 
     elif case.kind == "contradiction":
