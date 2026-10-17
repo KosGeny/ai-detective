@@ -49,7 +49,7 @@ def run_one(llm: DeepSeekLLM, question: Question, mode: str, context: BuiltConte
         "source_document_ids": context.source_document_ids,
         "source_claim_ids": context.source_claim_ids,
         "context_text": context.text, "branches": {str(key): value for key, value in context.branches.items()},
-        "parameters": {"model": llm.model, "max_tokens": 1200, "temperature": 1.0, "thinking": "disabled", "response_format": "json_object", "system_prompt": llm.system_prompt},
+        "parameters": {"model": llm.model, "max_tokens": 1200, "temperature": getattr(llm, "temperature", 0.0), "thinking": "disabled", "response_format": "json_object", "system_prompt": llm.system_prompt},
         "answer": None, "raw_output": None, "error": None, "error_type": None, "input_tokens": None, "output_tokens": None,
         "elapsed_seconds": None, "response_id": None,
     }
@@ -88,8 +88,9 @@ def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/
         raise ValueError("Для записи прогона укажите обычный JSONL; .gz поддерживается только для чтения архива")
     output.parent.mkdir(parents=True, exist_ok=True)
     existing = [row for row in load_results(output) if row["run_id"] == run_id]
-    if existing and any(row["model"] != llm.model or row["parameters"]["system_prompt"] != llm.system_prompt for row in existing):
-        raise ValueError("Нельзя продолжить run_id с другой моделью или промптом")
+    if existing and any(row["model"] != llm.model or row["parameters"]["system_prompt"] != llm.system_prompt
+                        or row["parameters"].get("temperature") != getattr(llm, "temperature", 0.0) for row in existing):
+        raise ValueError("Нельзя продолжить run_id с другой моделью, промптом или температурой")
     # A model answer with invalid logic is still an observed result of this run.
     # Retry only transport/API failures, so resuming does not change the sample.
     finished = {(row["question_id"], row["case_id"], row["mode"]) for row in existing

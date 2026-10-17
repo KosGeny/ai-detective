@@ -37,6 +37,10 @@ def summarize(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
         return mean(numbers) if numbers else None
     return {
         "total": len(rows), "valid": len(valid), "failed": len(rows) - len(valid),
+        "evidence_evaluated": len(valid),
+        "confidence_evaluated": len(valid),
+        "tokens_evaluated": sum(row.get("input_tokens") is not None for row in valid),
+        "time_evaluated": sum(row.get("elapsed_seconds") is not None for row in valid),
         "status_accuracy": _ratio(sum(row["answer"]["status"] == row["expected_status"] for row in valid), len(valid)),
         "status_accuracy_all": _ratio(sum(row["answer"]["status"] == row["expected_status"] for row in valid), len(rows)),
         "evidence_precision": precision, "evidence_recall": recall, "evidence_f1": f1,
@@ -54,19 +58,20 @@ def summarize(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
 
 
 def compare_stress(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
-    rows = [row for row in rows if row.get("answer") is not None]
+    rows = list(rows)
     baseline = {(row["question_id"], row["mode"]): row for row in rows if row["case_id"] == "baseline"}
     by_kind: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         if row["case_id"] == "baseline":
             continue
         original = baseline.get((row["question_id"], row["mode"]))
-        if original is None:
+        if original is None or row.get("answer") is None or original.get("answer") is None:
             continue
         answer = row["answer"]
         previous = original["answer"]
         by_kind[row["kind"]].append({
             "mode": row["mode"],
+            "context_unchanged": row["context_text"] == original["context_text"],
             "status_changed": answer["status"] != previous["status"],
             "expected_reaction": answer["status"] == row["expected_status"],
             "evidence_stable": set(answer["evidence_ids"]) == set(previous["evidence_ids"]),
@@ -78,6 +83,16 @@ def compare_stress(rows: Iterable[dict[str, Any]]) -> dict[str, Any]:
             "status_changed_rate": mean(item["status_changed"] for item in items),
             "expected_reaction_rate": mean(item["expected_reaction"] for item in items),
             "evidence_stability_rate": mean(item["evidence_stable"] for item in items),
+            "by_mode": {
+                mode: {
+                    "cases": len(subset),
+                    "status_changed_rate": mean(item["status_changed"] for item in subset),
+                    "expected_reaction_rate": mean(item["expected_reaction"] for item in subset),
+                    "context_unchanged_rate": mean(item["context_unchanged"] for item in subset),
+                }
+                for mode in ("A", "B", "C")
+                if (subset := [item for item in items if item["mode"] == mode])
+            },
         }
     return out
 

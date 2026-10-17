@@ -2,7 +2,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from src.llm import DeepSeekLLM, InvalidModelAnswer, LLMUnavailable, parse_model_answer
+from src.llm import DeepSeekLLM, InvalidModelAnswer, LLMUnavailable, get_api_key, parse_model_answer
 from src.schemas import BuiltContext
 
 
@@ -26,6 +26,12 @@ def test_unknown_evidence_id():
         parse_model_answer(payload(evidence_ids=["C99"]), "Q01", {"C01"})
 
 
+def test_contradicted_refuting_id_in_evidence_is_normalized():
+    answer = parse_model_answer(payload(status="contradicted", answer="Нет"), "Q01", {"C01"})
+    assert answer.evidence_ids == []
+    assert answer.counterevidence_ids == ["C01"]
+
+
 def test_both_without_counterevidence():
     with pytest.raises(InvalidModelAnswer, match="both"):
         parse_model_answer(payload(status="both"), "Q01", {"C01"})
@@ -41,11 +47,23 @@ def test_reference_to_unavailable_claim_in_explanation():
         parse_model_answer(payload(explanation="Это следует из C99."), "Q01", {"C01"})
 
 
-def test_missing_key(monkeypatch):
+def test_missing_key(monkeypatch, tmp_path):
     monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.setattr("src.llm.ENV_FILE", tmp_path / "missing.env")
     llm = DeepSeekLLM()
     with pytest.raises(LLMUnavailable, match="DEEPSEEK_API_KEY"):
         llm.ask("Q01", "Вопрос", BuiltContext(mode="B", question_id="Q01", text="C01: факт", claim_ids=["C01"]))
+
+
+def test_key_is_loaded_from_local_env_file(monkeypatch, tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("# comment\nDEEPSEEK_API_KEY='test-key'\n", encoding="utf-8")
+    monkeypatch.setattr("src.llm.ENV_FILE", env_file)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    assert get_api_key() == "test-key"
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "process-key")
+    assert get_api_key() == "process-key"
+    assert get_api_key("explicit-key") == "explicit-key"
 
 
 def test_adapter_parses_response_from_fake_client():

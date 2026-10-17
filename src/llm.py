@@ -14,6 +14,25 @@ from .schemas import BuiltContext, ModelAnswer
 
 DEFAULT_PROMPT = Path(__file__).resolve().parents[1] / "prompts" / "system.txt"
 DEFAULT_MODEL = "deepseek-flash"
+ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+
+
+def get_api_key(explicit_key: str | None = None) -> str | None:
+    """Use an explicit key, then the process environment, then the local .env."""
+    if explicit_key:
+        return explicit_key
+    if os.environ.get("DEEPSEEK_API_KEY"):
+        return os.environ["DEEPSEEK_API_KEY"]
+    if not ENV_FILE.exists():
+        return None
+    for line in ENV_FILE.read_text(encoding="utf-8").splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key.strip() == "DEEPSEEK_API_KEY":
+            value = value.strip()
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+                value = value[1:-1]
+            return value or None
+    return None
 
 class LLMUnavailable(RuntimeError):
     pass
@@ -60,24 +79,34 @@ def parse_model_answer(raw: str | dict[str, Any], question_id: str, available_id
         raise InvalidModelAnswer("При insufficient нельзя утверждать ответ или ссылаться на решающие доказательства")
     if answer.status == "entailed" and not answer.evidence_ids:
         raise InvalidModelAnswer("Для entailed нужны evidence_ids")
-    if answer.status == "contradicted" and not answer.counterevidence_ids:
-        raise InvalidModelAnswer("Для contradicted нужны counterevidence_ids")
+    if answer.status == "contradicted":
+        if not cited:
+            raise InvalidModelAnswer("Для contradicted нужен хотя бы один ID опровергающего основания")
+        # The assignment only requires both lists for status=both. For a negative
+        # answer, older model outputs put the refuting claim in evidence_ids.
+        # Normalize this presentation difference without consulting the gold set.
+        if answer.evidence_ids:
+            answer = answer.model_copy(update={
+                "evidence_ids": [],
+                "counterevidence_ids": answer.evidence_ids + answer.counterevidence_ids,
+            })
     return answer
 
 
 class DeepSeekLLM:
-    def __init__(self, model: str = DEFAULT_MODEL, api_key: str | None = None, prompt_path: str | Path = DEFAULT_PROMPT, client: Any = None):
+    def __init__(self, model: str = DEFAULT_MODEL, api_key: str | None = None, prompt_path: str | Path = DEFAULT_PROMPT, client: Any = None, temperature: float = 0.0):
         self.model = model
         self.system_prompt = Path(prompt_path).read_text(encoding="utf-8")
         self._api_key = api_key
         self._client = client
+        self.temperature = temperature
 
     def _get_client(self) -> Any:
         if self._client is not None:
             return self._client
-        key = self._api_key or os.environ.get("DEEPSEEK_API_KEY")
+        key = get_api_key(self._api_key)
         if not key:
-            raise LLMUnavailable("Задайте DEEPSEEK_API_KEY в окружении или используйте --ask-key")
+            raise LLMUnavailable("Добавьте DEEPSEEK_API_KEY в .env, окружение или используйте --ask-key")
         try:
             from openai import OpenAI
             self._client = OpenAI(api_key=key, base_url="https://api.deepseek.com", timeout=120.0, max_retries=2)
@@ -97,7 +126,7 @@ class DeepSeekLLM:
                         {"role": "user", "content": input_text},
                     ],
                     response_format={"type": "json_object"},
-                    temperature=1.0,
+                    temperature=self.temperature,
                     extra_body={"thinking": {"type": "disabled"}},
                     max_tokens=1200,
                 )
@@ -114,7 +143,7 @@ class DeepSeekLLM:
                     time.sleep(min(max(delay, 1), 60))
                     continue
                 detail = str(exc)
-                key = self._api_key or os.environ.get("DEEPSEEK_API_KEY")
+                key = get_api_key(self._api_key)
                 if key:
                     detail = detail.replace(key, "[REDACTED]")
                 raise LLMUnavailable(f"LLM недоступна: {type(exc).__name__}: {detail}") from None

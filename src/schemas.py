@@ -40,11 +40,13 @@ class Claim(BaseModel):
 
 class Question(BaseModel):
     question_id: str
+    question_type: Optional[Literal["direct", "multi_hop", "temporal", "rule_exception", "conflict", "insufficient"]] = None
     question: str
     gold_status: LogicStatus
     gold_answer: Optional[str] = None
     gold_evidence_ids: list[str] = Field(default_factory=list)
     gold_counterevidence_ids: list[str] = Field(default_factory=list)
+    review_note: Optional[str] = None
 
 
 @dataclass

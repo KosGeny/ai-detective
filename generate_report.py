@@ -10,7 +10,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 
 from src.evaluation import compare_modes, compare_stress, summarize
 from src.experiment import load_run
@@ -35,15 +35,27 @@ def fmt(value: float | None) -> str:
 
 
 def build_report(rows: list[dict], output: Path) -> None:
+    question_ids = {row["question_id"] for row in rows if row["case_id"] == "baseline"}
+    case_ids = {row["case_id"] for row in rows if row["case_id"] != "baseline"}
+    case_kinds = {row["case_id"]: row["kind"] for row in rows if row["case_id"] != "baseline"}
+    expected = {(qid, "baseline", mode) for qid in question_ids for mode in ("A", "B", "C")}
+    expected.update((row["question_id"], case_id, mode)
+                    for case_id in case_ids
+                    for row in rows if row["case_id"] == case_id
+                    for mode in ("A", "B", "C"))
     coverage = {(row["question_id"], row["case_id"], row["mode"]) for row in rows}
     by_mode = {
         mode: [row for row in rows if row["mode"] == mode] for mode in ("A", "B", "C")
     }
-    if (len(rows) != 120 or len(coverage) != 120
-            or any(len(by_mode[mode]) != 40 or sum(row["case_id"] == "baseline" for row in by_mode[mode]) != 12
+    if (len(question_ids) != 12 or len(case_ids) not in (28, 36)
+            or sum(kind == "shuffle" for kind in case_kinds.values()) != 12
+            or sum(kind == "contradiction" for kind in case_kinds.values()) != 12
+            or sum(kind == "delete" for kind in case_kinds.values()) != len(case_ids) - 24
+            or len(rows) != len(expected) or coverage != expected
+            or any(len(by_mode[mode]) != len(expected) // 3 or sum(row["case_id"] == "baseline" for row in by_mode[mode]) != 12
                    for mode in ("A", "B", "C"))
             or any(row.get("error_type") == "LLMUnavailable" for row in rows)):
-        raise ValueError("Для отчёта нужны 120 полученных ответов без ошибок доступа к LLM")
+        raise ValueError(f"Для отчёта нужны {len(expected)} полученных ответов без ошибок доступа к LLM")
     if (len({row["model"] for row in rows}) != 1
             or rows[0]["model"].startswith(("fake", "synthetic"))
             or any(not str(row.get("response_id", "")).startswith("chatcmpl-") and not row.get("raw_output") for row in rows)):
@@ -59,9 +71,15 @@ def build_report(rows: list[dict], output: Path) -> None:
     P = lambda text: Paragraph(text, styles["ReportBody"])
     H = lambda text: Paragraph(text, styles["ReportHead"])
     story = [Paragraph("AI-детектив: результаты лабораторной работы 6", styles["ReportTitle"])]
-    story.append(P(f"Модель: {rows[0]['model']}. В полном прогоне: 12 вопросов × 3 режима и 28 стресс-кейсов × 3 режима. "
+    story.append(P(f"Модель: {rows[0]['model']}. В полном прогоне: 12 вопросов × 3 режима и {len(case_ids)} стресс-кейсов × 3 режима. "
                    "Во всех режимах использован один системный промпт и одинаковые параметры. "
                    "B и C получали одинаковые ID утверждений; в C менялась только их организация."))
+    if any("revalidated_from_raw" in row for row in rows):
+        story.append(P(f"Сохранённые сырые ответы повторно разобраны без вызовов API: "
+                       f"{sum(bool(row.get('revalidated_from_raw')) for row in rows)} ранее отклонённых ответов приняты после "
+                       "одинаковой для всех режимов нормализации полей отрицательного ответа. "
+                       f"Не прошли проверку {sum(row['answer'] is None for row in rows)} ответа. "
+                       "Исходный архив сохранён отдельно; параметры и промпт каждого вызова находятся в его записи."))
     story.append(H("Основные метрики"))
     table = Table([
         ["Режим", "Статус", "Evidence F1", "Both recall", "Insuff. recall", "Токены ввода"],
@@ -91,15 +109,24 @@ def build_report(rows: list[dict], output: Path) -> None:
                    f"Средняя confidence и фактическая точность: A {fmt(base['A']['mean_confidence'])}/{fmt(base['A']['status_accuracy'])}, "
                    f"B {fmt(base['B']['mean_confidence'])}/{fmt(base['B']['status_accuracy'])}, "
                    f"C {fmt(base['C']['mean_confidence'])}/{fmt(base['C']['status_accuracy'])}."))
-    story.append(P("Невалидных по логическим правилам ответов: " + "; ".join(
+    validation_label = ("Невалидных ответов после повторного разбора: "
+                        if any("revalidated_from_raw" in row for row in rows)
+                        else "Невалидных ответов модели: ")
+    story.append(P(validation_label + "; ".join(
         f"{mode}: {base[mode]['failed']} из {base[mode]['total']}" for mode in ("A", "B", "C")
-    ) + ". В точности статуса по всем вопросам они считаются ошибками; остальные метрики вычислены по валидным ответам."))
+    ) + ". В точности статуса знаменатель — все 12 вопросов; невалидные ответы считаются ошибками. "
+      "Evidence и confidence рассчитаны по прошедшим проверку ответам: " + "; ".join(
+        f"{mode}: {base[mode]['valid']}/12" for mode in ("A", "B", "C")
+    ) + ". Время и токены доступны для: " + "; ".join(
+        f"{mode}: {base[mode]['tokens_evaluated']}/12" for mode in ("A", "B", "C")
+    ) + ". Это ограничивает сравнимость средних."))
     story.append(P("Evidence precision/recall и recall контрдоказательств: " + "; ".join(
         f"{mode}: {fmt(base[mode]['evidence_precision'])}/{fmt(base[mode]['evidence_recall'])}, "
         f"counter {fmt(base[mode]['counterevidence_recall'])}" for mode in ("A", "B", "C")
     ) + ". Среднее время ответа и токены вывода: " + "; ".join(
         f"{mode}: {fmt(base[mode]['mean_elapsed_seconds'])} с, {fmt(base[mode]['mean_output_tokens'])}" for mode in ("A", "B", "C")
     ) + "."))
+    story.append(PageBreak())
     story.append(H("Стресс-тесты"))
     for kind, label in (("shuffle", "Перестановка документов"), ("delete", "Удаление посылки"), ("contradiction", "Добавление противоречия")):
         item = stress.get(kind, {})
@@ -110,17 +137,53 @@ def build_report(rows: list[dict], output: Path) -> None:
                    f"одинаковый набор ID в B/C: {'да' if modes['same_retrieved_ids'] else 'нет'}. "
                    "Тип источника поставлен первым уровнем p-adic пути, чтобы сначала разделить системные записи, свидетельства и правила; "
                    "при ином порядке уровней соседство утверждений и форма контекста изменились бы."))
+    shuffle_by_mode = stress.get("shuffle", {}).get("by_mode", {})
+    temperature = rows[0]["parameters"].get("temperature")
+    story.append(P("Перестановка меняет текст контекста только в A. В B и C список утверждений и сам текст "
+                   "запроса остались прежними во всех парах; их изменения ответа нельзя приписывать порядку документов. "
+                   f"В A статус поменялся в {fmt(shuffle_by_mode.get('A', {}).get('status_changed_rate'))} валидных пар. "
+                   f"Повторные вызовы выполнялись при temperature={temperature}; без контрольных повторов "
+                   "нельзя полностью отделить влияние порядка от вариации генерации."))
     baseline = defaultdict(dict)
     for row in rows:
         if row["case_id"] == "baseline":
             baseline[row["question_id"]][row["mode"]] = row
-    helped = [qid for qid, group in baseline.items() if group["C"]["answer"] and group["C"]["answer"]["status"] == group["C"]["expected_status"] and (not group["B"]["answer"] or group["B"]["answer"]["status"] != group["B"]["expected_status"])]
-    harmed = [qid for qid, group in baseline.items() if group["B"]["answer"] and group["B"]["answer"]["status"] == group["B"]["expected_status"] and (not group["C"]["answer"] or group["C"]["answer"]["status"] != group["C"]["expected_status"])]
+    helped = [qid for qid, group in baseline.items() if group["B"]["answer"] and group["C"]["answer"]
+              and group["C"]["answer"]["status"] == group["C"]["expected_status"]
+              and group["B"]["answer"]["status"] != group["B"]["expected_status"]]
+    harmed = [qid for qid, group in baseline.items() if group["B"]["answer"] and group["C"]["answer"]
+              and group["B"]["answer"]["status"] == group["B"]["expected_status"]
+              and group["C"]["answer"]["status"] != group["C"]["expected_status"]]
     story.append(P("Примеры, где C помог относительно B: " + (", ".join(helped) if helped else "не выявлены") +
                    "; где C ухудшил статус: " + (", ".join(harmed) if harmed else "не выявлены") + "."))
+    stress_rows = {(row["question_id"], row["case_id"], row["mode"]): row for row in rows}
+    def stress_status(qid: str, case_id: str, mode: str) -> str:
+        answer = stress_rows[(qid, case_id, mode)]["answer"]
+        return answer["status"] if answer else "невалидный ответ"
+    story.append(P(
+        "В подготовленном противоречии Q04 эталон both; B/C дали "
+        f"{stress_status('Q04', 'Q04_contradiction', 'B')}/{stress_status('Q04', 'Q04_contradiction', 'C')}. "
+        "После удаления посылки Q04 эталон insufficient; B/C дали "
+        f"{stress_status('Q04', 'Q04_delete', 'B')}/{stress_status('Q04', 'Q04_delete', 'C')}. "
+        "Это примеры возможной пользы и вреда группировки в единичных случаях, без доказательства причинности."
+    ))
+    def predicted(qid: str, mode: str) -> str:
+        answer = baseline[qid][mode]["answer"]
+        return answer["status"] if answer else "невалидный ответ"
+    q06_missing = sorted(set(baseline['Q06']['B']['gold_evidence_ids']) - set(baseline['Q06']['B']['context_claim_ids']))
+    q07_missing = sorted(set(baseline['Q07']['B']['gold_evidence_ids']) - set(baseline['Q07']['B']['context_claim_ids']))
+    story.append(P(f"Q05: при одинаковых ID B дал {predicted('Q05', 'B')}, C — {predicted('Q05', 'C')} "
+                   "(эталон contradicted: запись в 00:24 раньше синхронизации в 01:02). "
+                   f"В Q06 ответы A/B/C: {predicted('Q06', 'A')}/{predicted('Q06', 'B')}/{predicted('Q06', 'C')}; "
+                   f"BM25 не включил эталонные основания: {', '.join(q06_missing) if q06_missing else 'все присутствовали'}. "
+                   f"В Q07 недоступные B/C эталонные ID: {', '.join(q07_missing) if q07_missing else 'нет'}. "
+                   "Эти примеры показывают ограничения поиска и упаковки на данном досье; общего эффекта p-adic схемы они не доказывают."))
     story.append(H("Ограничения и вклад"))
     story.append(P("Эксперимент проведён на одном вымышленном досье и одной модели. Метрики относятся к этим 12 вопросам и подготовленным изменениям; "
                    "они не измеряют причинный эффект группировки за пределами данного набора. "
+                   "При insufficient уверенных однозначных ответов среди валидных результатов не было; "
+                   "средняя заявленная уверенность не является проверенной калибровкой. "
+                   "Авторская закрытая шкала событий предоставлена отдельно; согласование эталонов всей командой ещё требует подтверждения. "
                    "Дедкова: досье и эталоны; Генне: retrieval, p-adic, контекст и стресс-подготовка; "
                    "Маракулин: LLM, интерфейс, метрики и интеграционные тесты."))
     output.parent.mkdir(parents=True, exist_ok=True)
