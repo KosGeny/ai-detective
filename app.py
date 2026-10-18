@@ -16,8 +16,6 @@ from src.llm import DeepSeekLLM
 
 RESULTS = Path("results/runs.jsonl")
 CURRENT_ARCHIVE = Path("results/deepseek_flash_current_20261017.jsonl.gz")
-FINAL_ARCHIVE = Path("results/deepseek_flash_final.jsonl.gz")
-LEGACY_ARCHIVE = Path("results/deepseek_flash_revalidated.jsonl.gz")
 REQUIRED_UPLOADS = {"documents.jsonl", "claims.jsonl", "questions.jsonl", "stress_cases.jsonl"}
 
 st.set_page_config(page_title="AI-детектив", layout="wide")
@@ -130,10 +128,6 @@ if st.button("Запустить полный прогон"):
 available_results = {}
 if CURRENT_ARCHIVE.exists():
     available_results["Итоговый прогон 17 октября: текущие данные"] = CURRENT_ARCHIVE
-if FINAL_ARCHIVE.exists():
-    available_results["Прогон 9 октября: прежняя редакция данных"] = FINAL_ARCHIVE
-if LEGACY_ARCHIVE.exists():
-    available_results["Предыдущий прогон после повторной проверки"] = LEGACY_ARCHIVE
 if RESULTS.exists():
     available_results["Локальные прогоны"] = RESULTS
 saved_path = available_results[st.sidebar.selectbox("Источник результатов", list(available_results))] if available_results else RESULTS
@@ -143,10 +137,6 @@ if saved:
     st.subheader("Сохранённые результаты")
     if saved_path == CURRENT_ARCHIVE:
         st.caption("Итоговый прогон текущего досье: 38 утверждений, 36 стресс-кейсов, 144 ответа; шесть ответов не прошли логическую проверку формата.")
-    elif saved_path == FINAL_ARCHIVE:
-        st.caption("Показан полный прогон 9 октября с 37 утверждениями и 28 стресс-кейсами. Текущие данные из CLOUD_DOCS отличаются и требуют отдельного прогона.")
-    elif saved_path == LEGACY_ARCHIVE:
-        st.caption("Показан предыдущий прогон после повторной проверки сохранённых ответов.")
     run_ids = list(dict.fromkeys(row["run_id"] for row in reversed(saved)))
     selected = st.selectbox("Прогон", run_ids)
     selected_rows = load_run(saved_path, selected)

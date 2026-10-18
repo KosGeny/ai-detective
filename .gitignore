@@ -4,9 +4,6 @@ __pycache__/
 /.pytest_cache
 /.venv/
 /results/*
-!/results/deepseek_flash.jsonl.gz
-!/results/deepseek_flash_revalidated.jsonl.gz
-!/results/deepseek_flash_final.jsonl.gz
 !/results/deepseek_flash_current_20261017.jsonl.gz
 !/results/deepseek_flash_current_20261017_manifest.json
 .streamlit/secrets.toml
