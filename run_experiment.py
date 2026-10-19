@@ -15,10 +15,11 @@ def main() -> None:
     parser.add_argument("--modes", nargs="+", choices=("A", "B", "C"), default=["A", "B", "C"])
     parser.add_argument("--run-id", help="Продолжить существующий прогон теми же настройками")
     parser.add_argument("--output", default="results/runs.jsonl")
+    parser.add_argument("--allow-nonverbatim-evidence", action="store_true", help="Запустить неизменённые исходные данные с недословными evidence; сохранить все предупреждения")
     args = parser.parse_args()
     key = getpass.getpass("DeepSeek API key: ") if args.ask_key else None
     rows = run_experiment(output=args.output, include_stress=not args.baseline_only, llm=DeepSeekLLM(model=args.model, api_key=key),
-                          modes=tuple(args.modes), run_id=args.run_id,
+                          modes=tuple(args.modes), run_id=args.run_id, allow_nonverbatim_evidence=args.allow_nonverbatim_evidence,
                           progress=lambda n, total: print(f"{n}/{total}", end="\r", flush=True))
     print()
     run_id = args.run_id or rows[0]["run_id"]

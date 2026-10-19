@@ -9,13 +9,13 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from src.data_io import load_dossier
+from src.data_io import evidence_issues, load_dossier
 from src.evaluation import compare_modes, compare_stress, summarize
 from src.experiment import load_results, load_run, make_contexts, run_experiment, run_one
 from src.llm import DeepSeekLLM
 
 RESULTS = Path("results/runs.jsonl")
-CURRENT_ARCHIVE = Path("results/deepseek_flash_current_20261017.jsonl.gz")
+CURRENT_ARCHIVE = Path("results/deepseek_flash_main_20261019.jsonl.gz")
 REQUIRED_UPLOADS = {"documents.jsonl", "claims.jsonl", "questions.jsonl", "stress_cases.jsonl"}
 
 st.set_page_config(page_title="AI-детектив", layout="wide")
@@ -40,17 +40,24 @@ if uploaded:
     data_dir = upload_dir
 
 try:
-    documents, claims, questions, cases = load_dossier(data_dir)
+    documents, claims, questions, cases = load_dossier(data_dir, allow_nonverbatim_evidence=True)
 except Exception as exc:
     st.error(f"Ошибка данных: {exc}")
     st.stop()
+
+validation_warnings = evidence_issues(documents, claims, cases)
+allow_nonverbatim = False
+if validation_warnings:
+    st.warning("В исходных данных есть недословные evidence: " + ", ".join(issue["owner"] for issue in validation_warnings) + ". Данные показаны без исправлений; сохранённый прогон учитывает это ограничение.")
+    allow_nonverbatim = st.sidebar.checkbox("Разрешить новые запросы с недословными evidence", value=False)
+request_blocked = bool(validation_warnings) and not allow_nonverbatim
 
 question = st.selectbox("Вопрос", questions, format_func=lambda item: f"{item.question_id}: {item.question}")
 matching_cases = [case for case in cases if case.question_id == question.question_id]
 case_choice = st.selectbox("Условие", [None, *matching_cases], format_func=lambda item: "Исходное досье" if item is None else f"{item.kind}: {item.case_id}")
 mode = st.radio("Режим", ("A", "B", "C"), horizontal=True)
 try:
-    contexts = dict(make_contexts(question, documents, claims, case_choice))
+    contexts = dict(make_contexts(question, documents, claims, case_choice, allow_nonverbatim_evidence=True))
 except Exception as exc:
     st.error(f"Ошибка построения контекста: {exc}")
     st.stop()
@@ -71,11 +78,13 @@ with left:
 
 with right:
     st.subheader("Ответ")
-    if st.button("Запросить ответ модели", type="primary"):
+    if st.button("Запросить ответ модели", type="primary", disabled=request_blocked):
         llm = DeepSeekLLM(model=model, api_key=api_key or None)
         row = run_one(llm, question, mode, context, case_choice, run_id=uuid.uuid4().hex,
                       original_document_ids=[document.document_id for document in documents],
                       original_claim_ids=[claim.claim_id for claim in claims])
+        row["parameters"]["allow_nonverbatim_evidence"] = allow_nonverbatim
+        row["input_validation_warnings"] = validation_warnings
         RESULTS.parent.mkdir(exist_ok=True)
         with RESULTS.open("a", encoding="utf-8") as stream:
             stream.write(json.dumps(row, ensure_ascii=False) + "\n")
@@ -108,7 +117,7 @@ st.subheader("Полный эксперимент")
 st.write(f"{len(questions) * 3} исходных ответов и {len(cases) * 3} стресс-ответов. Каждый ответ сохраняется сразу после получения.")
 include_stress = st.checkbox("Включить стресс-кейсы", value=True)
 selected_modes = st.multiselect("Режимы для прогона", ("A", "B", "C"), default=("A", "B", "C"))
-if st.button("Запустить полный прогон"):
+if st.button("Запустить полный прогон", disabled=request_blocked):
     if not selected_modes:
         st.error("Выберите хотя бы один режим")
         st.stop()
@@ -117,6 +126,7 @@ if st.button("Запустить полный прогон"):
         with st.spinner("Выполняется прогон"):
             rows = run_experiment(data_dir=data_dir, output=RESULTS, include_stress=include_stress,
                                   llm=DeepSeekLLM(model=model, api_key=api_key or None), modes=tuple(selected_modes),
+                                  allow_nonverbatim_evidence=allow_nonverbatim,
                                   progress=lambda n, total: bar.progress(n / total))
         if any(row["error"] for row in rows):
             st.error(f"Прогон остановлен после {len(rows)} записей; run_id={rows[0]['run_id']}. {rows[-1]['error']}")
@@ -127,7 +137,7 @@ if st.button("Запустить полный прогон"):
 
 available_results = {}
 if CURRENT_ARCHIVE.exists():
-    available_results["Итоговый прогон 17 октября: текущие данные"] = CURRENT_ARCHIVE
+    available_results["Прогон 19 октября: утверждённые данные main"] = CURRENT_ARCHIVE
 if RESULTS.exists():
     available_results["Локальные прогоны"] = RESULTS
 saved_path = available_results[st.sidebar.selectbox("Источник результатов", list(available_results))] if available_results else RESULTS
@@ -136,7 +146,7 @@ if saved:
     st.divider()
     st.subheader("Сохранённые результаты")
     if saved_path == CURRENT_ARCHIVE:
-        st.caption("Итоговый прогон текущего досье: 38 утверждений, 36 стресс-кейсов, 144 ответа; шесть ответов не прошли логическую проверку формата.")
+        st.caption("Прогон по неизменённым данным main: 37 утверждений, 28 стресс-кейсов, 120 ответов. Четыре несовпадения evidence сохранены как ограничения исходных данных.")
     run_ids = list(dict.fromkeys(row["run_id"] for row in reversed(saved)))
     selected = st.selectbox("Прогон", run_ids)
     selected_rows = load_run(saved_path, selected)

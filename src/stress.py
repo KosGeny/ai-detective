@@ -77,6 +77,7 @@ def apply_case(
     claims: list[Claim],
     modes: tuple[str, ...] = ("A", "B", "C"),
     k: int = 15,
+    allow_nonverbatim_evidence: bool = False,
 ) -> list[tuple[str, BuiltContext, StressResult]]:
     docs = list(documents)
     cls = list(claims)
@@ -105,7 +106,7 @@ def apply_case(
             raise ValueError("contradiction-кейс без added_document")
         if case.added_claim.document_id != case.added_document.document_id:
             raise ValueError("Утверждение ссылается на другой добавленный документ")
-        if case.added_claim.evidence not in case.added_document.text:
+        if not allow_nonverbatim_evidence and case.added_claim.evidence not in case.added_document.text:
             raise ValueError("Добавленное evidence отсутствует в документе")
         docs.append(case.added_document)
 

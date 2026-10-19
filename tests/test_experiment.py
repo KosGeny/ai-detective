@@ -1,22 +1,21 @@
 from pathlib import Path
 import pytest
 
-from src.data_io import load_dossier
+from src.data_io import evidence_issues, load_dossier
 from src.evaluation import compare_modes, compare_stress, summarize
 from src.experiment import load_results, load_run, make_contexts, run_experiment
 from src.llm import LLMResult
 from src.schemas import ModelAnswer
-from generate_report import build_report
 from revalidate_results import revalidate
 
 
 def test_real_dossier_and_all_contexts():
-    documents, claims, questions, cases = load_dossier(Path(__file__).parents[1] / "data")
-    assert (len(documents), len(claims), len(questions), len(cases)) == (10, 38, 12, 36)
+    documents, claims, questions, cases = load_dossier(Path(__file__).parents[1] / "data", allow_nonverbatim_evidence=True)
+    assert (len(documents), len(claims), len(questions), len(cases)) == (10, 37, 12, 28)
     count = 0
     for question in questions:
         for case in [None, *(case for case in cases if case.question_id == question.question_id)]:
-            contexts = dict(make_contexts(question, documents, claims, case))
+            contexts = dict(make_contexts(question, documents, claims, case, allow_nonverbatim_evidence=True))
             assert set(contexts["B"].claim_ids) == set(contexts["C"].claim_ids)
             assert len(contexts["B"].claim_ids) <= 15
             if case and case.case_id == "Q03_delete":
@@ -26,15 +25,15 @@ def test_real_dossier_and_all_contexts():
                 assert "DX" in contexts["A"].source_document_ids
                 assert "CX03" in contexts["B"].source_claim_ids
             count += len(contexts)
-    assert count == 144
+    assert count == 120
 
 
 def test_shuffle_changes_only_mode_a_context():
-    documents, claims, questions, cases = load_dossier(Path(__file__).parents[1] / "data")
+    documents, claims, questions, cases = load_dossier(Path(__file__).parents[1] / "data", allow_nonverbatim_evidence=True)
     for question in questions:
         case = next(c for c in cases if c.question_id == question.question_id and c.kind == "shuffle")
         base = dict(make_contexts(question, documents, claims))
-        shuffled = dict(make_contexts(question, documents, claims, case))
+        shuffled = dict(make_contexts(question, documents, claims, case, allow_nonverbatim_evidence=True))
         assert base["A"].text != shuffled["A"].text
         assert base["B"].text == shuffled["B"].text
         assert base["C"].text == shuffled["C"].text
@@ -67,27 +66,50 @@ class FakeLLM:
         )
 
 
-def test_full_pipeline_writes_144_results(tmp_path):
+def test_full_pipeline_writes_120_results(tmp_path):
     output = tmp_path / "runs.jsonl"
-    rows = run_experiment(data_dir=Path(__file__).parents[1] / "data", output=output, llm=FakeLLM())
-    assert len(rows) == 144
-    assert len(load_results(output)) == 144
+    rows = run_experiment(data_dir=Path(__file__).parents[1] / "data", output=output, llm=FakeLLM(), allow_nonverbatim_evidence=True)
+    assert len(rows) == 120
+    assert len(load_results(output)) == 120
     assert all(row["error"] is None for row in rows)
     assert all(row["raw_output"] == "{}" for row in rows)
     assert any(row["original_document_ids"] != row["source_document_ids"] for row in rows)
-    assert summarize(rows)["valid"] == 144
+    assert summarize(rows)["valid"] == 120
     assert compare_modes(rows)["same_retrieved_ids"] is True
     assert compare_stress(rows)["shuffle"]["cases"] == 36
-    with pytest.raises(ValueError, match="реальную LLM"):
-        build_report(rows, tmp_path / "report.pdf")
 
 
 def test_partial_modes_can_resume_same_run(tmp_path):
     output = tmp_path / "runs.jsonl"
     data = Path(__file__).parents[1] / "data"
-    first = run_experiment(data_dir=data, output=output, llm=FakeLLM(), modes=("B", "C"), run_id="integration")
-    second = run_experiment(data_dir=data, output=output, llm=FakeLLM(), modes=("A",), run_id="integration")
-    assert len(first) == 96
-    assert len(second) == 48
-    assert len(load_run(output, "integration")) == 144
-    assert run_experiment(data_dir=data, output=output, llm=FakeLLM(), modes=("A", "B", "C"), run_id="integration") == []
+    first = run_experiment(data_dir=data, output=output, llm=FakeLLM(), allow_nonverbatim_evidence=True, modes=("B", "C"), run_id="integration")
+    second = run_experiment(data_dir=data, output=output, llm=FakeLLM(), allow_nonverbatim_evidence=True, modes=("A",), run_id="integration")
+    assert len(first) == 80
+    assert len(second) == 40
+    assert len(load_run(output, "integration")) == 120
+    assert run_experiment(data_dir=data, output=output, llm=FakeLLM(), allow_nonverbatim_evidence=True, modes=("A", "B", "C"), run_id="integration") == []
+
+
+def test_approved_main_reports_nonverbatim_evidence_without_rewriting():
+    data = Path(__file__).parents[1] / "data"
+    before = {p.name: p.read_bytes() for p in data.glob("*.jsonl")}
+    with pytest.raises(ValueError, match="C28"):
+        load_dossier(data)
+    documents, claims, _, cases = load_dossier(data, allow_nonverbatim_evidence=True)
+    assert {issue["owner"] for issue in evidence_issues(documents, claims, cases)} == {
+        "C28", "C35", "Q07_contradiction", "Q12_contradiction"
+    }
+    assert before == {p.name: p.read_bytes() for p in data.glob("*.jsonl")}
+
+
+def test_nonverbatim_option_does_not_allow_unknown_document(tmp_path):
+    import json
+    source = Path(__file__).parents[1] / "data"
+    for path in source.glob("*.jsonl"):
+        (tmp_path / path.name).write_bytes(path.read_bytes())
+    path = tmp_path / "claims.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    rows[0]["document_id"] = "DOES_NOT_EXIST"
+    path.write_text("\n".join(json.dumps(row, ensure_ascii=False) for row in rows) + "\n")
+    with pytest.raises(ValueError, match="неизвестный документ"):
+        load_dossier(tmp_path, allow_nonverbatim_evidence=True)

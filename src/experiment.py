@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from .context_builder import build_context
-from .data_io import load_dossier
+from .data_io import evidence_issues, load_dossier
 from .llm import DeepSeekLLM, InvalidModelAnswer, LLMUnavailable
 from .schemas import BuiltContext, Claim, Document, Question, StressCase
 from .stress import apply_case
@@ -23,9 +23,9 @@ def load_results(path: str | Path) -> list[dict[str, Any]]:
         return [json.loads(line) for line in stream if line.strip()]
 
 
-def make_contexts(question: Question, documents: list[Document], claims: list[Claim], case: StressCase | None = None) -> list[tuple[str, BuiltContext]]:
+def make_contexts(question: Question, documents: list[Document], claims: list[Claim], case: StressCase | None = None, *, allow_nonverbatim_evidence: bool = False) -> list[tuple[str, BuiltContext]]:
     if case is not None:
-        contexts = [(mode, context) for mode, context, _ in apply_case(case, question.question, documents, claims)]
+        contexts = [(mode, context) for mode, context, _ in apply_case(case, question.question, documents, claims, allow_nonverbatim_evidence=allow_nonverbatim_evidence)]
     else:
         contexts = [(mode, build_context(mode, question.question_id, question.question, documents, claims)) for mode in ("A", "B", "C")]
     by_mode = dict(contexts)
@@ -66,8 +66,9 @@ def run_one(llm: DeepSeekLLM, question: Question, mode: str, context: BuiltConte
     return result
 
 
-def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/runs.jsonl", include_stress: bool = True, llm: DeepSeekLLM | None = None, progress: Callable[[int, int], None] | None = None, modes: tuple[str, ...] = ("A", "B", "C"), run_id: str | None = None) -> list[dict[str, Any]]:
-    documents, claims, questions, cases = load_dossier(data_dir)
+def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/runs.jsonl", include_stress: bool = True, llm: DeepSeekLLM | None = None, progress: Callable[[int, int], None] | None = None, modes: tuple[str, ...] = ("A", "B", "C"), run_id: str | None = None, allow_nonverbatim_evidence: bool = False) -> list[dict[str, Any]]:
+    documents, claims, questions, cases = load_dossier(data_dir, allow_nonverbatim_evidence=allow_nonverbatim_evidence)
+    validation_warnings = evidence_issues(documents, claims, cases)
     llm = llm or DeepSeekLLM()
     if isinstance(llm, DeepSeekLLM):
         llm._get_client()  # Fail before creating result files when credentials are absent.
@@ -79,7 +80,7 @@ def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/
         if include_stress:
             for case in cases:
                 if case.question_id == question.question_id:
-                    for mode, context in make_contexts(question, documents, claims, case):
+                    for mode, context in make_contexts(question, documents, claims, case, allow_nonverbatim_evidence=allow_nonverbatim_evidence):
                         if mode in modes:
                             tasks.append((question, case, mode, context))
     run_id = run_id or uuid.uuid4().hex
@@ -89,7 +90,8 @@ def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/
     output.parent.mkdir(parents=True, exist_ok=True)
     existing = [row for row in load_results(output) if row["run_id"] == run_id]
     if existing and any(row["model"] != llm.model or row["parameters"]["system_prompt"] != llm.system_prompt
-                        or row["parameters"].get("temperature") != getattr(llm, "temperature", 0.0) for row in existing):
+                        or row["parameters"].get("temperature") != getattr(llm, "temperature", 0.0)
+                        or row["parameters"].get("allow_nonverbatim_evidence", False) != allow_nonverbatim_evidence for row in existing):
         raise ValueError("Нельзя продолжить run_id с другой моделью, промптом или температурой")
     # A model answer with invalid logic is still an observed result of this run.
     # Retry only transport/API failures, so resuming does not change the sample.
@@ -102,6 +104,8 @@ def run_experiment(data_dir: str | Path = "data", output: str | Path = "results/
             row = run_one(llm, question, mode, context, case, run_id,
                           original_document_ids=[document.document_id for document in documents],
                           original_claim_ids=[claim.claim_id for claim in claims])
+            row["parameters"]["allow_nonverbatim_evidence"] = allow_nonverbatim_evidence
+            row["input_validation_warnings"] = validation_warnings
             rows.append(row)
             stream.write(json.dumps(row, ensure_ascii=False) + "\n")
             stream.flush()
