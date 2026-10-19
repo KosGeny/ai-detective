@@ -1,0 +1,109 @@
+{
+  "run_id": "lab6_main_20261019",
+  "data_origin": "main plus authorised control deletions and question_type",
+  "base_data_commit": "a8c60d8fa11552defdd840753849bab8a6b3196a",
+  "model": "deepseek-flash",
+  "expected_calls": 144,
+  "saved_calls": 144,
+  "invalid_model_answers": 4,
+  "api_failures_in_final_archive": 0,
+  "allow_nonverbatim_evidence": true,
+  "input_validation_warnings": [
+    {
+      "owner": "C28",
+      "document_id": "D06",
+      "evidence": "«До их выхода к бассейну я не знала, что Илья и Даша решили провести ночное водное испытание»."
+    },
+    {
+      "owner": "C35",
+      "document_id": "D06",
+      "evidence": "В мастерской работа с аппаратом остановлена по указанию Марины в 00:16."
+    },
+    {
+      "owner": "Q07_contradiction",
+      "document_id": "DX",
+      "evidence": "Вход Ильи в 22:34 не соответствовал условиям аварийного допуска."
+    },
+    {
+      "owner": "Q12_contradiction",
+      "document_id": "DX",
+      "evidence": "В ночь с 14 на 15 марта Илья не устанавливал новую программу на «Нереиду»."
+    }
+  ],
+  "allowed_data_changes": {
+    "documents.jsonl": "byte-identical to main",
+    "claims.jsonl": "byte-identical to main",
+    "questions.jsonl": "question_type added; every original field unchanged",
+    "stress_cases.jsonl": "28 original cases unchanged; 8 control deletions appended"
+  },
+  "stages": [
+    {
+      "name": "main_original_120",
+      "rows_1_based": [
+        1,
+        120
+      ],
+      "saved_calls": 120,
+      "input_sha256": {
+        "data/documents.jsonl": "fed4e1297b59c2b73895f4ee408484d426371a04dd7a779fad27a411642785c2",
+        "data/claims.jsonl": "66212328f81d8b5d282ba28ff4b8e9ffed6a34dac766348b2c4ab21946163bfc",
+        "data/questions.jsonl": "144029f56550354a097a1cfafa3b253e8cd07b04ab6607dedbfe1951acefa245",
+        "data/stress_cases.jsonl": "d814f6d8b5160754e9185f11349f6c658e5c823b30ea7243191fefc5944aade6",
+        "prompts/system.txt": "7b9ef938f53f1d608d286d0cfd5e441d9674da42be86341a7ca43c8b9c27b4e1"
+      },
+      "source_archive_sha256": "8fc6587a196ab288d8a3bb737ec09b165a744fb547d3fda90d00810ce8f14fa9",
+      "original_observations_preserved": true,
+      "created_at": {
+        "first": "2026-10-19T13:11:06.394910+00:00",
+        "last": "2026-10-19T13:13:56.211422+00:00"
+      }
+    },
+    {
+      "name": "additional_control_24",
+      "rows_1_based": [
+        121,
+        144
+      ],
+      "saved_calls": 24,
+      "input_sha256": {
+        "data/documents.jsonl": "fed4e1297b59c2b73895f4ee408484d426371a04dd7a779fad27a411642785c2",
+        "data/claims.jsonl": "66212328f81d8b5d282ba28ff4b8e9ffed6a34dac766348b2c4ab21946163bfc",
+        "data/questions.jsonl": "a47b39459b0dbb5e671aec71d15b059edb56cac38344b9d7c6ae2e1ea20992b7",
+        "data/stress_cases.jsonl": "a822dae7bce2e81c8dd24ebd40879429f2d8f12a197ce25b6af3592671e3a0c8",
+        "prompts/system.txt": "7b9ef938f53f1d608d286d0cfd5e441d9674da42be86341a7ca43c8b9c27b4e1"
+      },
+      "case_ids": [
+        "Q01_delete",
+        "Q02_delete",
+        "Q07_delete",
+        "Q08_delete",
+        "Q09_delete",
+        "Q10_delete",
+        "Q11_delete",
+        "Q12_delete"
+      ],
+      "created_at": {
+        "first": "2026-10-19T13:31:13.167534+00:00",
+        "last": "2026-10-19T13:31:47.378205+00:00"
+      }
+    }
+  ],
+  "input_sha256": {
+    "data/documents.jsonl": "fed4e1297b59c2b73895f4ee408484d426371a04dd7a779fad27a411642785c2",
+    "data/claims.jsonl": "66212328f81d8b5d282ba28ff4b8e9ffed6a34dac766348b2c4ab21946163bfc",
+    "data/questions.jsonl": "a47b39459b0dbb5e671aec71d15b059edb56cac38344b9d7c6ae2e1ea20992b7",
+    "data/stress_cases.jsonl": "a822dae7bce2e81c8dd24ebd40879429f2d8f12a197ce25b6af3592671e3a0c8",
+    "prompts/system.txt": "7b9ef938f53f1d608d286d0cfd5e441d9674da42be86341a7ca43c8b9c27b4e1"
+  },
+  "code_sha256": {
+    "src/context_builder.py": "12908b0aff4102148ef749b18988689b1361fdf757b624d0233aeb846385178d",
+    "src/retrieval.py": "f647f11a789c0d324cdded2648d8a5e6549c1111ed19900c08a7e054b3aec18d",
+    "src/padic.py": "4b37fbc2c50a1bab78040e84dc9e488fff09b91b3587942827e09ffd974e8c5a",
+    "src/stress.py": "9798f4e14b1d40fc60580aa42b73089d2b1d7cf530c3ba0f33a42a49a5dff6c2",
+    "src/llm.py": "f12d4c01c4b3a0154bef0d8823c60f30678f701e65bea3992329e893876515cc",
+    "src/data_io.py": "7acae6a2a59e780edf05bc58291d60b27ddc63f41d83568ff7b9418b5aa9c670",
+    "src/experiment.py": "3c9f1b485bd00181da788d29e3abc1e7748c276b1899eb2f657010f6c9b287d5"
+  },
+  "archive": "results/deepseek_flash_main_extended_20261019.jsonl.gz",
+  "archive_sha256": "f4b4d1ca42b45137b72eef91a0587629ffa3dd1377afb2396224ecf77bb9eb08"
+}

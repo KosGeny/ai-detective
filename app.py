@@ -15,7 +15,7 @@ from src.experiment import load_results, load_run, make_contexts, run_experiment
 from src.llm import DeepSeekLLM
 
 RESULTS = Path("results/runs.jsonl")
-CURRENT_ARCHIVE = Path("results/deepseek_flash_main_20261019.jsonl.gz")
+CURRENT_ARCHIVE = Path("results/deepseek_flash_main_extended_20261019.jsonl.gz")
 REQUIRED_UPLOADS = {"documents.jsonl", "claims.jsonl", "questions.jsonl", "stress_cases.jsonl"}
 
 st.set_page_config(page_title="AI-детектив", layout="wide")
@@ -137,7 +137,7 @@ if st.button("Запустить полный прогон", disabled=request_bl
 
 available_results = {}
 if CURRENT_ARCHIVE.exists():
-    available_results["Прогон 19 октября: утверждённые данные main"] = CURRENT_ARCHIVE
+    available_results["19 октября: main + 24 контрольных запроса"] = CURRENT_ARCHIVE
 if RESULTS.exists():
     available_results["Локальные прогоны"] = RESULTS
 saved_path = available_results[st.sidebar.selectbox("Источник результатов", list(available_results))] if available_results else RESULTS
@@ -146,7 +146,7 @@ if saved:
     st.divider()
     st.subheader("Сохранённые результаты")
     if saved_path == CURRENT_ARCHIVE:
-        st.caption("Прогон по неизменённым данным main: 37 утверждений, 28 стресс-кейсов, 120 ответов. Четыре несовпадения evidence сохранены как ограничения исходных данных.")
+        st.caption("37 утверждений, 36 стресс-кейсов, 144 ответа: исходные 120 по main сохранены, дополнительно выполнены 24 контрольных запроса. Четыре несовпадения evidence остаются ограничениями исходных данных.")
     run_ids = list(dict.fromkeys(row["run_id"] for row in reversed(saved)))
     selected = st.selectbox("Прогон", run_ids)
     selected_rows = load_run(saved_path, selected)
