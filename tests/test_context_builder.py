@@ -11,7 +11,7 @@ def assert_same_claim_ids(ctx_b: BuiltContext, ctx_c: BuiltContext) -> None:
         raise AssertionError(
             f"Режимы B и C получили разные claim_id: only_B={only_b}, only_C={only_c}"
         )
-    
+
 def test_modes_b_and_c_get_same_claim_ids(sample_claims, sample_documents):
     question = "Что произошло с зарядным шкафом Ш-4 ночью?"
     ctx_b = build_context(

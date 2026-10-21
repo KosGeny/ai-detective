@@ -2,3 +2,10 @@
 /tmp
 __pycache__/
 /.pytest_cache
+/.venv/
+/results/*
+!/results/deepseek_flash_main_extended_20261019.jsonl.gz
+!/results/deepseek_flash_main_extended_20261019_manifest.json
+.streamlit/secrets.toml
+.env
+.DS_Store

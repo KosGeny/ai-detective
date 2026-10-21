@@ -93,6 +93,8 @@ def distance(
 
     if len(px) != 3 or len(py) != 3:
         raise ValueError("p-adic path должен содержать ровно 3 уровня")
+    if any(value not in (0, 1, 2) for value in (*px, *py)):
+        raise ValueError("Уровни p-adic path должны быть 0, 1 или 2")
 
     if px == py:
         return 0.0
