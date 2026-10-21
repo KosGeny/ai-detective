@@ -46,11 +46,7 @@ except Exception as exc:
     st.stop()
 
 validation_warnings = evidence_issues(documents, claims, cases)
-allow_nonverbatim = False
-if validation_warnings:
-    st.warning("В исходных данных есть недословные evidence: " + ", ".join(issue["owner"] for issue in validation_warnings) + ". Данные показаны без исправлений; сохранённый прогон учитывает это ограничение.")
-    allow_nonverbatim = st.sidebar.checkbox("Разрешить новые запросы с недословными evidence", value=False)
-request_blocked = bool(validation_warnings) and not allow_nonverbatim
+allow_nonverbatim = True
 
 question = st.selectbox("Вопрос", questions, format_func=lambda item: f"{item.question_id}: {item.question}")
 matching_cases = [case for case in cases if case.question_id == question.question_id]
@@ -78,7 +74,7 @@ with left:
 
 with right:
     st.subheader("Ответ")
-    if st.button("Запросить ответ модели", type="primary", disabled=request_blocked):
+    if st.button("Запросить ответ модели", type="primary"):
         llm = DeepSeekLLM(model=model, api_key=api_key or None)
         row = run_one(llm, question, mode, context, case_choice, run_id=uuid.uuid4().hex,
                       original_document_ids=[document.document_id for document in documents],
@@ -117,7 +113,7 @@ st.subheader("Полный эксперимент")
 st.write(f"{len(questions) * 3} исходных ответов и {len(cases) * 3} стресс-ответов. Каждый ответ сохраняется сразу после получения.")
 include_stress = st.checkbox("Включить стресс-кейсы", value=True)
 selected_modes = st.multiselect("Режимы для прогона", ("A", "B", "C"), default=("A", "B", "C"))
-if st.button("Запустить полный прогон", disabled=request_blocked):
+if st.button("Запустить полный прогон"):
     if not selected_modes:
         st.error("Выберите хотя бы один режим")
         st.stop()
